@@ -188,12 +188,30 @@ void Context::createInstance()
     appInfo.apiVersion = VK_API_VERSION_1_0;
 
     VkDebugUtilsMessengerCreateInfoEXT debugUtilsCreateInfo{};
+    debugUtilsCreateInfo.pNext = nullptr;
     debugUtilsCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     debugUtilsCreateInfo.messageSeverity = //
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | //
         VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
     debugUtilsCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
     debugUtilsCreateInfo.pfnUserCallback = debugUtilsCallback;
+    debugUtilsCreateInfo.pUserData = nullptr;
+
+    const std::vector<VkValidationFeatureEnableEXT> enabledFeatures{
+        VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT, //
+        VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT, //
+        // VK_VALIDATION_FEATURE_ENABLE_BEST_PRACTICES_EXT,                     //
+        // VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT,                       //
+        VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT, //
+    };
+
+    VkValidationFeaturesEXT validationFeatures{};
+    validationFeatures.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+    validationFeatures.pNext = &debugUtilsCreateInfo;
+    validationFeatures.enabledValidationFeatureCount = ui32Size(enabledFeatures);
+    validationFeatures.pEnabledValidationFeatures = enabledFeatures.data();
+    validationFeatures.disabledValidationFeatureCount = 0;
+    validationFeatures.pDisabledValidationFeatures = nullptr;
 
     const std::vector<const char*> extensions = getRequiredInstanceExtensions();
 
@@ -204,7 +222,7 @@ void Context::createInstance()
     instanceCreateInfo.ppEnabledExtensionNames = extensions.data();
     instanceCreateInfo.enabledLayerCount = ui32Size(c_validationLayers);
     instanceCreateInfo.ppEnabledLayerNames = c_validationLayers.data();
-    instanceCreateInfo.pNext = &debugUtilsCreateInfo;
+    instanceCreateInfo.pNext = &validationFeatures;
 
     VK_CHECK(vkCreateInstance(&instanceCreateInfo, nullptr, &m_instance));
 
