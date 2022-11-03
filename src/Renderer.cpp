@@ -1,7 +1,7 @@
 #include "Renderer.hpp"
 #include "VulkanUtils.hpp"
 #include "Utils.hpp"
-#include <GLFW/glfw3.h>
+#include <vulkan/vulkan_win32.h>
 #include <array>
 
 namespace
@@ -15,6 +15,8 @@ Renderer::Renderer(Context& context) :
     m_device(context.getDevice()),
     m_lastRenderTime(std::chrono::high_resolution_clock::now())
 {
+    m_dx.init();
+
     createRenderPass();
     createSwapchainImageViews();
     createFramebuffers();
@@ -228,111 +230,83 @@ void Renderer::createSampler()
 
 void Renderer::createTextures()
 {
-    const uint32_t width = 256;
-    const uint32_t height = 256;
-    const VkPhysicalDevice physicalDevice = m_context.getPhysicalDevice();
-    const VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
+    const VkExternalFenceHandleTypeFlags handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+    { // Create Image
+        VkExternalMemoryImageCreateInfo externalMemoryCreateInfo{};
+        externalMemoryCreateInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+        externalMemoryCreateInfo.handleTypes = handleType;
 
-    const uint32_t imageSizeInBytes = width * height * 4;
-    std::vector<uint8_t> imageData(imageSizeInBytes, 0);
-    for (uint32_t i = 0; i < imageSizeInBytes; i += 4)
-    {
-        imageData[i + 0] = i % 255;
-        imageData[i + 1] = 255 - (i % 255);
-        imageData[i + 2] = 128 + (i % 127);
-        imageData[i + 3] = 255;
+        VkImageCreateInfo imageCreateInfo{};
+        imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageCreateInfo.pNext = &externalMemoryCreateInfo;
+        imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        imageCreateInfo.mipLevels = 1;
+        imageCreateInfo.arrayLayers = 1;
+        imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageCreateInfo.extent.depth = 1;
+        imageCreateInfo.extent.width = c_texWidth;
+        imageCreateInfo.extent.height = c_texHeight;
+        imageCreateInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        VK_CHECK(vkCreateImage(m_device, &imageCreateInfo, nullptr, &m_image));
     }
-    const StagingBuffer stagingBuffer = createStagingBuffer(m_device, physicalDevice, imageData.data(), imageData.size());
 
-    const VkImageUsageFlags imageUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    { // Allocate and bind memory
+        VkMemoryRequirements memRequirements{};
+        vkGetImageMemoryRequirements(m_device, m_image, &memRequirements);
 
-    VkImageCreateInfo imageInfo{};
-    imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = width;
-    imageInfo.extent.height = height;
-    imageInfo.extent.depth = 1;
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.format = format;
-    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = imageUsage;
-    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    imageInfo.flags = 0;
+        const MemoryTypeResult memoryTypeResult = findMemoryType(m_context.getPhysicalDevice(), memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        CHECK(memoryTypeResult.found);
 
-    VK_CHECK(vkCreateImage(m_device, &imageInfo, nullptr, &m_image));
+        VkImportMemoryWin32HandleInfoKHR importInfo{};
+        importInfo.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+        importInfo.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+        importInfo.handle = m_dx.getSharedHandle();
 
-    VkMemoryRequirements memRequirements;
-    vkGetImageMemoryRequirements(m_device, m_image, &memRequirements);
+        VkMemoryAllocateInfo memAllocInfo{};
+        memAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        memAllocInfo.pNext = &importInfo;
+        memAllocInfo.allocationSize = memRequirements.size;
+        memAllocInfo.memoryTypeIndex = memoryTypeResult.typeIndex;
+        m_imageSize = memRequirements.size;
 
-    VkMemoryAllocateInfo allocInfo{};
-    allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocInfo.allocationSize = memRequirements.size;
+        VK_CHECK(vkAllocateMemory(m_device, &memAllocInfo, nullptr, &m_imageMemory));
+        VK_CHECK(vkBindImageMemory(m_device, m_image, m_imageMemory, 0));
+    }
 
-    const VkMemoryPropertyFlags memoryProperties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-    const MemoryTypeResult memoryTypeResult = findMemoryType(physicalDevice, memRequirements.memoryTypeBits, memoryProperties);
-    CHECK(memoryTypeResult.found);
+    { // Create image view
+        VkImageViewCreateInfo viewCreateInfo{};
+        viewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewCreateInfo.image = m_image;
+        viewCreateInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+        viewCreateInfo.subresourceRange = VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(m_device, &viewCreateInfo, nullptr, &m_imageView);
+    }
 
-    VK_CHECK(vkAllocateMemory(m_device, &allocInfo, nullptr, &m_imageMemory));
+    { // Image layout transform
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_image;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
 
-    vkBindImageMemory(m_device, m_image, m_imageMemory, 0);
-
-    {
-        VkImageMemoryBarrier transferDstBarrier{};
-        transferDstBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        transferDstBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        transferDstBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        transferDstBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transferDstBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        transferDstBarrier.image = m_image;
-        transferDstBarrier.subresourceRange = c_defaultSubresourceRance;
-        transferDstBarrier.srcAccessMask = 0;
-        transferDstBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-        VkImageMemoryBarrier readOnlyBarrier = transferDstBarrier;
-        readOnlyBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        readOnlyBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        readOnlyBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        readOnlyBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        const VkPipelineStageFlags transferSrcFlags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        const VkPipelineStageFlags transferDstFlags = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        const VkPipelineStageFlags readOnlySrcFlags = transferDstFlags;
-        const VkPipelineStageFlags readOnlyDstFlags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-
-        VkBufferImageCopy region{};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.mipLevel = 0;
-        region.imageSubresource.baseArrayLayer = 0;
-        region.imageSubresource.layerCount = 1;
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {width, height, 1};
+        const VkPipelineStageFlags sourceStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        const VkPipelineStageFlags destinationStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
         const SingleTimeCommand command = beginSingleTimeCommands(m_context.getGraphicsCommandPool(), m_device);
-        const VkCommandBuffer& cb = command.commandBuffer;
 
-        vkCmdPipelineBarrier(cb, transferSrcFlags, transferDstFlags, 0, 0, nullptr, 0, nullptr, 1, &transferDstBarrier);
-        vkCmdCopyBufferToImage(cb, stagingBuffer.buffer, m_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-        vkCmdPipelineBarrier(cb, readOnlySrcFlags, readOnlyDstFlags, 0, 0, nullptr, 0, nullptr, 1, &readOnlyBarrier);
+        vkCmdPipelineBarrier(command.commandBuffer, sourceStage, destinationStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
         endSingleTimeCommands(m_context.getGraphicsQueue(), command);
     }
-
-    VkImageViewCreateInfo viewInfo{};
-    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    viewInfo.image = m_image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange = c_defaultSubresourceRance;
-
-    VK_CHECK(vkCreateImageView(m_device, &viewInfo, nullptr, &m_imageView));
-
-    releaseStagingBuffer(m_device, stagingBuffer);
 }
 
 void Renderer::createTexturesDescriptorSetLayouts()

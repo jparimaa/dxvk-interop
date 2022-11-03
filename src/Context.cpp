@@ -1,5 +1,7 @@
 #include "Context.hpp"
 #include "Utils.hpp"
+#define GLFW_INCLUDE_VULKAN
+#include <GLFW/glfw3.h>
 
 #include <set>
 #include <algorithm>
@@ -34,6 +36,21 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugUtilsCallback(VkDebugUtilsMessageSeverityFla
 void glfwErrorCallback(int error, const char* description)
 {
     printf("GLFW error %d: %s\n", error, description);
+}
+
+std::vector<const char*> getRequiredInstanceExtensions()
+{
+    std::vector<const char*> extensions;
+    unsigned int glfwExtensionCount = 0;
+    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+    for (unsigned int i = 0; i < glfwExtensionCount; ++i)
+    {
+        extensions.push_back(glfwExtensions[i]);
+    }
+
+    extensions.insert(extensions.end(), c_instanceExtensions.begin(), c_instanceExtensions.end());
+    return extensions;
 }
 } // namespace
 

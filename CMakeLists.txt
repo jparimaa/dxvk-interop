@@ -14,7 +14,7 @@ add_executable(${_target} ${_source_list})
 find_package(Vulkan REQUIRED)
 add_subdirectory(submodules/glfw)
 target_include_directories(${_target} PRIVATE ${_src_dir} ${Vulkan_INCLUDE_DIRS})
-target_link_libraries(${_target} PRIVATE glfw ${Vulkan_LIBRARIES})
+target_link_libraries(${_target} PRIVATE glfw d3d11 dxgi ${Vulkan_LIBRARIES})
 target_compile_options(${_target} PRIVATE "/wd26812")
 
 # Shaders

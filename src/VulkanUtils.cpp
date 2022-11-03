@@ -1,5 +1,4 @@
 #include "VulkanUtils.hpp"
-#include <GLFW/glfw3.h>
 #include <set>
 #include <string>
 #include <fstream>
@@ -33,21 +32,6 @@ void printDeviceExtensions(VkPhysicalDevice physicalDevice)
 void printPhysicalDeviceName(VkPhysicalDeviceProperties properties)
 {
     printf("Device name: %s\n", properties.deviceName);
-}
-
-std::vector<const char*> getRequiredInstanceExtensions()
-{
-    std::vector<const char*> extensions;
-    unsigned int glfwExtensionCount = 0;
-    const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-
-    for (unsigned int i = 0; i < glfwExtensionCount; ++i)
-    {
-        extensions.push_back(glfwExtensions[i]);
-    }
-
-    extensions.insert(extensions.end(), c_instanceExtensions.begin(), c_instanceExtensions.end());
-    return extensions;
 }
 
 bool hasAllQueueFamilies(const QueueFamilyIndices& indices)

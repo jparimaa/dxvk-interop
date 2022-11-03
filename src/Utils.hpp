@@ -26,6 +26,10 @@
         printf("WARNING: %s at %s:%d\n", f, __FILE__, __LINE__); \
     } while (false)
 
+const int c_texWidth = 256;
+const int c_texHeight = 256;
+const int c_texChannels = 4;
+
 const int c_windowWidth = 1600;
 const int c_windowHeight = 1200;
 

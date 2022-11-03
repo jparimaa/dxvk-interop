@@ -1,9 +1,9 @@
 #pragma once
 
 #include "VulkanUtils.hpp"
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
 #include <vector>
+
+class GLFWwindow;
 
 class Context final
 {
