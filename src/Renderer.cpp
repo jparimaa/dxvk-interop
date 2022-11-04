@@ -16,7 +16,6 @@ Renderer::Renderer(Context& context) :
     m_lastRenderTime(std::chrono::high_resolution_clock::now())
 {
     m_dx.init();
-
     createRenderPass();
     createSwapchainImageViews();
     createFramebuffers();
@@ -109,6 +108,7 @@ bool Renderer::render()
 
 bool Renderer::update(uint32_t imageIndex)
 {
+    m_dx.update();
     bool running = m_context.update();
     if (!running)
     {
