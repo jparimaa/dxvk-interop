@@ -6,5 +6,5 @@ Steps:
 - Enable instance and device extensions: `VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME` and `VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME`
 - Create DX11 texture with `MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX`
 - Create shared handle and keyed mutex: `IDXGIResource1::CreateSharedHandle` and `m_texture->QueryInterface(__uuidof(IDXGIKeyedMutex), (LPVOID*)&m_keyedMutex)`
-- Setup Vulkan and initialize image memory `pNext` with `VkImportMemoryWin32HandleInfoKHR` using the shared handle from above.
+- Setup Vulkan and initialize image memory `pNext` with `VkImportMemoryWin32HandleInfoKHR` using the shared handle from the previous step
 - Render to DX texture between `IDXGIKeyedMutex::AcquireSync` and `IDXGIKeyedMutex::ReleaseSync`
